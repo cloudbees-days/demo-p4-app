@@ -19,11 +19,11 @@ metadata:
         - create-release-issue
         - gather-evidence
         - quality-checks
-        - update-helix-plan-task
+        - update-p4-plan-task
         - approval
     - name: Quality Assurance
       jobs:
-        - provision-data-qa
+        - provision-delphix-data-qa
         - deploy-to-qa
         - enable-feature-flags-qa
         - run-tests-qa
@@ -31,7 +31,7 @@ metadata:
     - name: Staging
       jobs:
         - release-manager-approval
-        - provision-data-staging
+        - provision-delphix-data-staging
         - deploy-to-staging
         - enable-feature-flags-staging
         - run-tests-staging
@@ -40,7 +40,7 @@ metadata:
     - name: Production
       jobs:
         - wait-for-snow-change-request
-        - provision-data-prod
+        - provision-delphix-data-prod
         - deploy-to-prod
         - run-smoke-tests
         - roll-out-feature-flags
@@ -503,7 +503,7 @@ jobs:
 
             **Quality Gate**: PASSED - No blocking issues found
           format: MARKDOWN
-  update-helix-plan-task:
+  update-p4-plan-task:
     needs:
       - quality-checks
       - create-release-issue
@@ -536,13 +536,13 @@ jobs:
           echo "✓ Task updated at: $(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
   approval:
     needs:
-      - update-helix-plan-task
+      - update-p4-plan-task
     timeout-minutes: 4320
     with:
       instructions: ""
       disallowLaunchByUser: false
     delegates: cloudbees-io/manual-approval/custom-job.yml@v1
-  provision-data-qa:
+  provision-delphix-data-qa:
     environment: demo-p4-qa
     needs:
       - approval
@@ -661,7 +661,7 @@ jobs:
           format: MARKDOWN
   deploy-to-qa:
     needs:
-      - provision-data-qa
+      - provision-delphix-data-qa
     uses: cloudbees-days/demo-p4-app/.cloudbees/workflows/deployer.yaml
     with:
       manifest: ${{ inputs.manifest }}
@@ -994,7 +994,7 @@ jobs:
       disallowLaunchByUser: false
       approvers: ""
       notifyAllEligibleUsers: false
-  provision-data-staging:
+  provision-delphix-data-staging:
     environment: demo-p4-staging
     needs:
       - release-manager-approval
@@ -1120,7 +1120,7 @@ jobs:
           format: MARKDOWN
   deploy-to-staging:
     needs:
-      - provision-data-staging
+      - provision-delphix-data-staging
     uses: cloudbees-days/demo-p4-app/.cloudbees/workflows/deployer.yaml
     with:
       manifest: ${{ inputs.manifest }}
@@ -1482,7 +1482,7 @@ jobs:
     steps:
       - run: echo "TODO"
         uses: docker://golang
-  provision-data-prod:
+  provision-delphix-data-prod:
     environment: demo-p4-prod
     needs:
       - wait-for-snow-change-request
@@ -1621,7 +1621,7 @@ jobs:
           format: MARKDOWN
   deploy-to-prod:
     needs:
-      - provision-data-prod
+      - provision-delphix-data-prod
     uses: cloudbees-days/demo-p4-app/.cloudbees/workflows/deployer.yaml
     with:
       manifest: ${{ inputs.manifest }}
