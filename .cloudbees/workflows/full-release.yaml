@@ -23,6 +23,7 @@ metadata:
         - approval
     - name: Quality Assurance
       jobs:
+        - provision-data-qa
         - deploy-to-qa
         - enable-feature-flags-qa
         - run-tests-qa
@@ -30,6 +31,7 @@ metadata:
     - name: Staging
       jobs:
         - release-manager-approval
+        - provision-data-staging
         - deploy-to-staging
         - enable-feature-flags-staging
         - run-tests-staging
@@ -38,75 +40,209 @@ metadata:
     - name: Production
       jobs:
         - wait-for-snow-change-request
+        - provision-data-prod
         - deploy-to-prod
         - run-smoke-tests
         - roll-out-feature-flags
 jobs:
   create-release-issue:
     outputs:
-      issue-key: ${{ steps.create-release-issue.outputs.issue-key }}
-      issue-url: ${{ steps.create-release-issue.outputs.issue-url }}
+      issue-key: ${{ steps.create-release-task.outputs.task-key }}
+      issue-url: ${{ steps.create-release-task.outputs.task-url }}
     steps:
-      - uses: https://github.com/cloudbees-days/jira-create-issue
-        id: create-release-issue
-        with:
-          jira-url: ${{ secrets.JIRA_URL }}
-          jira-username: ${{ secrets.JIRA_USERNAME }}
-          jira-token: ${{ secrets.JIRA_TOKEN }}
-          project-key: UDEMO
-          issue-type: Task
-          issue-fields: >
-            summary: "Release ${{ cloudbees.scm.repository}} #${{
-            cloudbees.run_number }}"
+      - name: Connect to Perforce Helix Plan
+        uses: docker://alpine:latest
+        run: |
+          echo "Connecting to Perforce Helix Plan Server"
+          echo "Server: https://helixplan.demo.cloudbees.io:8443"
+          echo "Project: UDEMO"
+          echo "User: cloudbees-ci"
+          sleep 2
+          echo "✓ Successfully connected to Helix Plan"
+          echo "✓ Server version: Helix Plan 2023.3"
+      - name: Create Release Task in Helix Plan
+        id: create-release-task
+        uses: docker://alpine:latest
+        run: |
+          echo "📝 Creating release task in Helix Plan..."
+          echo "Project: UDEMO"
+          echo "Task Type: Release"
+          sleep 2
 
-            description: |
-              Initializing release of ${{ cloudbees.scm.repository}} #${{ cloudbees.run_number }}
+          # Simulate task creation
+          TASK_KEY="UDEMO-${{ cloudbees.run_number }}"
+          TASK_URL="https://helixplan.demo.cloudbees.io:8443/project/UDEMO/task/${TASK_KEY}"
+
+          echo "=== Task Created ==="
+          echo "Task ID: ${TASK_KEY}"
+          echo "Summary: Release ${{ cloudbees.scm.repository}} #${{ cloudbees.run_number }}"
+          echo "Status: In Progress"
+          echo "Priority: High"
+          echo "Assigned to: Release Team"
+          echo "URL: ${TASK_URL}"
+
+          # Set outputs
+          echo "${TASK_KEY}" > $CLOUDBEES_OUTPUTS/task-key
+          echo "${TASK_URL}" > $CLOUDBEES_OUTPUTS/task-url
+
+          echo "✓ Release task created successfully"
       - name: Report release issue creation
         uses: cloudbees-io/publish-evidence-item@v1
         with:
           content: >-
-            ## Release Issue Created
+            ## Release Task Created (Helix Plan)
 
 
-            **Release Issue:** ${{ steps.create-release-issue.outputs.issue-key
-            }}
+            **Task ID:** ${{ steps.create-release-task.outputs.task-key }}
 
-            **URL:** ${{ steps.create-release-issue.outputs.issue-url }}
+            **URL:** ${{ steps.create-release-task.outputs.task-url }}
+
+            **Project:** UDEMO
+
+            **Summary:** Release ${{ cloudbees.scm.repository}} #${{ cloudbees.run_number }}
           format: MARKDOWN
   gather-evidence:
     needs:
       - create-release-issue
     outputs:
-      issues: ${{ steps.get-issues.outputs.issues }}
-      total: ${{ steps.get-issues.outputs.total }}
+      issues: ${{ steps.get-tasks.outputs.tasks }}
+      total: ${{ steps.get-tasks.outputs.total }}
       issues-table: ${{ steps.format-issues.outputs.issues-table }}
     steps:
-      - uses: https://github.com/cloudbees-days/jira-get-issues
-        id: get-issues
-        name: Get Jira Tickets
-        with:
-          jira-url: ${{ secrets.JIRA_URL }}
-          jira-username: ${{ secrets.JIRA_USERNAME }}
-          jira-token: ${{ secrets.JIRA_TOKEN }}
-          jql: project = "UDEMO" AND status != "Done" ORDER BY created DESC
-          fields: summary,status,assignee,created
-          max-results: "20"
+      - name: Connect to Perforce Helix Plan
+        uses: docker://alpine:latest
+        run: |
+          echo "Connecting to Perforce Helix Plan Server"
+          echo "Server: https://helixplan.demo.cloudbees.io:8443"
+          echo "Project: UDEMO"
+          sleep 1
+          echo "✓ Connected to Helix Plan"
+      - name: Query Open Tasks from Helix Plan
+        id: get-tasks
+        uses: docker://alpine:latest
+        run: |
+          apk add --no-cache jq
+
+          echo "Querying tasks from Helix Plan..."
+          echo "Filter: project='UDEMO' AND status != 'Done'"
+          echo "Sort: created DESC"
+          echo "Limit: 20"
+          sleep 2
+
+          # Simulate task query results
+          cat > tasks.json << 'EOF'
+          [
+            {
+              "key": "UDEMO-245",
+              "fields": {
+                "summary": "Implement user authentication feature",
+                "status": {"name": "In Progress"},
+                "priority": {"name": "High"},
+                "assignee": {"displayName": "Alice Developer"}
+              }
+            },
+            {
+              "key": "UDEMO-243",
+              "fields": {
+                "summary": "Fix API response time issue",
+                "status": {"name": "In Review"},
+                "priority": {"name": "Critical"},
+                "assignee": {"displayName": "Bob Engineer"}
+              }
+            },
+            {
+              "key": "UDEMO-241",
+              "fields": {
+                "summary": "Update database schema for new feature",
+                "status": {"name": "To Do"},
+                "priority": {"name": "Medium"},
+                "assignee": {"displayName": "Carol DBA"}
+              }
+            }
+          ]
+          EOF
+
+          cat tasks.json > $CLOUDBEES_OUTPUTS/tasks
+          echo "3" > $CLOUDBEES_OUTPUTS/total
+
+          echo "✓ Retrieved 3 open tasks from Helix Plan"
+      - name: Perforce Helix Core - Connect
+        uses: docker://alpine:latest
+        run: |
+          echo "Connecting to Perforce Helix Core Server"
+          echo "P4PORT: ssl:perforce.demo.cloudbees.io:1666"
+          echo "P4USER: cloudbees-ci"
+          echo "P4CLIENT: cloudbees-ci-release-workspace"
+          sleep 1
+          echo "✓ Successfully connected to Perforce Helix Core"
+          echo "✓ Server version: P4D/LINUX26X86_64/2023.1/2513900"
+      - name: Perforce Helix - Sync demo-p4-web
+        uses: docker://alpine:latest
+        run: |
+          echo "Syncing from Perforce Helix Core Depot"
+          echo "Executing: p4 sync //depot/demo-p4-web/main/...@latest"
+          sleep 2
+
+          # Simulated file sync output
+          echo "//depot/demo-p4-web/main/package.json#45 - added as package.json"
+          echo "//depot/demo-p4-web/main/src/index.js#89 - added as src/index.js"
+          echo "//depot/demo-p4-web/main/src/components/App.js#67 - added as src/components/App.js"
+
+          echo ""
+          echo "Changelist: @745891"
+          echo "Files synced: 124"
+          echo "✓ Workspace synced with depot (demo-p4-web)"
       - uses: https://github.com/cloudbees-io/checkout@v1
         name: Checkout Hackers Web
         id: checkout-hackers-web
+        continue-on-error: true
         with:
           repository: cloudbees-days/demo-p4-web
+      - name: Perforce Helix - Sync demo-p4-auth
+        uses: docker://alpine:latest
+        run: |
+          echo "Syncing from Perforce Helix Core Depot"
+          echo "Executing: p4 sync //depot/demo-p4-auth/main/...@latest"
+          sleep 2
+
+          # Simulated file sync output
+          echo "//depot/demo-p4-auth/main/package.json#52 - added as package.json"
+          echo "//depot/demo-p4-auth/main/src/auth.js#103 - added as src/auth.js"
+          echo "//depot/demo-p4-auth/main/src/middleware/jwt.js#34 - added as src/middleware/jwt.js"
+
+          echo ""
+          echo "Changelist: @745892"
+          echo "Files synced: 87"
+          echo "✓ Workspace synced with depot (demo-p4-auth)"
       - uses: https://github.com/cloudbees-io/checkout@v1
         name: Checkout Hackers Auth
         id: checkout-hackers-auth
+        continue-on-error: true
         with:
           repository: cloudbees-days/demo-p4-auth
+      - name: Perforce Helix - Sync demo-p4-api
+        uses: docker://alpine:latest
+        run: |
+          echo "Syncing from Perforce Helix Core Depot"
+          echo "Executing: p4 sync //depot/demo-p4-api/main/...@latest"
+          sleep 2
+
+          # Simulated file sync output
+          echo "//depot/demo-p4-api/main/package.json#61 - added as package.json"
+          echo "//depot/demo-p4-api/main/src/api.js#127 - added as src/api.js"
+          echo "//depot/demo-p4-api/main/src/routes/users.js#78 - added as src/routes/users.js"
+
+          echo ""
+          echo "Changelist: @745893"
+          echo "Files synced: 156"
+          echo "✓ Workspace synced with depot (demo-p4-api)"
       - uses: https://github.com/cloudbees-io/checkout@v1
         name: Checkout Hackers API
         id: checkout-hackers-api
+        continue-on-error: true
         with:
           repository: cloudbees-days/demo-p4-api
-      - name: Format issues as table
+      - name: Format tasks as table
         uses: docker://alpine:3.19
         id: format-issues
         run: >
@@ -128,7 +264,7 @@ jobs:
 
           # Parse JSON and format as table rows
 
-          echo '${{ steps.get-issues.outputs.issues }}' | jq -r '.[] |
+          echo '${{ steps.get-tasks.outputs.tasks }}' | jq -r '.[] |
             "| " + .key + " | " + .fields.summary + " | " + .fields.status.name + " | " + .fields.priority.name + " |"' >> $CLOUDBEES_OUTPUTS/issues-table
 
           echo 'EOF' >> $CLOUDBEES_OUTPUTS/issues-table
@@ -137,14 +273,19 @@ jobs:
         with:
           content: |
             # Evidence report
-            ## Release Issue
-            ${{ needs.create-release-issue.outputs.issue-key }}
-            ${{ needs.create-release-issue.outputs.issue-url }}
+            ## Release Task (Helix Plan)
+            **Task ID:** ${{ needs.create-release-issue.outputs.issue-key }}
+            **URL:** ${{ needs.create-release-issue.outputs.issue-url }}
 
-            ## Jira Tickets
+            ## Open Tasks (Helix Plan)
             ${{ steps.format-issues.outputs.issues-table }}
 
-            ## Repositories
+            ## Perforce Helix Core Changesets
+            - **demo-p4-web:** Changelist @745891 (124 files)
+            - **demo-p4-auth:** Changelist @745892 (87 files)
+            - **demo-p4-api:** Changelist @745893 (156 files)
+
+            ## Git Repositories (Backup)
             ${{ steps.checkout-hackers-web.outputs.commit-url}}
             ${{ steps.checkout-hackers-auth.outputs.commit-url}}
             ${{ steps.checkout-hackers-api.outputs.commit-url}}
@@ -153,69 +294,117 @@ jobs:
     needs:
       - gather-evidence
     outputs:
-      security-scan-results: ${{ steps.security-scan.outputs.results }}
-      code-quality-score: ${{ steps.code-analysis.outputs.quality-score }}
-      dependency-vulnerabilities: ${{ steps.dependency-check.outputs.vulnerabilities }}
+      security-scan-results: ${{ steps.klocwork-analysis.outputs.results }}
+      code-quality-score: ${{ steps.klocwork-analysis.outputs.quality-score }}
+      dependency-vulnerabilities: ${{ steps.klocwork-analysis.outputs.vulnerabilities }}
     steps:
-      - name: Security Vulnerability Scan
-        id: security-scan
-        uses: docker://alpine:3.19
+      - name: Connect to Klocwork Server
+        uses: docker://alpine:latest
         run: |
-          apk add --no-cache curl jq
+          echo "Connecting to Klocwork Server"
+          echo "Server: klocwork.demo.cloudbees.io:8080"
+          echo "Project: demo-p4-app"
+          sleep 1
+          echo "✓ Connected to Klocwork"
+          echo "✓ Server version: Klocwork 2023.4"
+      - name: Klocwork Static Code Analysis
+        id: klocwork-analysis
+        kind: scan
+        uses: docker://alpine:latest
+        run: |
+          apk add --no-cache jq
 
-          # Simulate security scan results
+          echo "Klocwork Static Code Analysis"
+          echo "Project: demo-p4-app"
+          echo "Language: JavaScript/Node.js"
+          echo "Build command: npm ci && npm run build"
+          sleep 2
+
+          echo ""
+          echo "Build Specification Generation"
+          echo "✓ Build spec generated: kwinject.out"
+
+          echo ""
+          echo "🔄 Analysis Phases:"
+          echo "Phase 1: Parsing source files..."
+          sleep 1
+          echo "  ✓ Parsed 367 JavaScript files"
+
+          echo "Phase 2: Building call graph..."
+          sleep 1
+          echo "  ✓ Call graph complete (2,847 nodes)"
+
+          echo "Phase 3: Data flow analysis..."
+          sleep 1
+          echo "  ✓ Data flow analysis complete"
+
+          echo "Phase 4: Running security checkers..."
+          sleep 1
+          echo "  • SQL Injection detection"
+          echo "  • Cross-Site Scripting (XSS)"
+          echo "  • Path Traversal"
+          echo "  • Command Injection"
+          echo "  • Insecure Deserialization"
+          echo "  ✓ Security analysis complete"
+
+          echo "Phase 5: Code quality checks..."
+          sleep 1
+          echo "  • Cyclomatic complexity"
+          echo "  • Dead code detection"
+          echo "  • Best practices validation"
+          echo "  ✓ Quality analysis complete"
+
+          echo ""
+          echo "Analysis Results Summary"
+          echo "═══════════════════════════════"
+          echo "Critical:           2 issues"
+          echo "Error:              5 issues"
+          echo "Warning:           12 issues"
+          echo "Review:            23 issues"
+          echo "───────────────────────────────"
+          echo "   Total:             42 issues"
+          echo ""
+          echo "Code Quality Metrics"
+          echo "═══════════════════════════════"
+          echo "Quality Score:        88/100"
+          echo "Issue Density:        2.1/KLOC"
+          echo "Cyclomatic Complexity: 4.2 avg"
+          echo "Code Duplication:     3.4%"
+          echo "Comment Density:      18.7%"
+
+          # Generate security scan results
           cat > scan_results.json << 'EOF'
           {
-            "scan_id": "sec-scan-$(date +%s)",
-            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)",
-            "critical": 0,
-            "high": 2,
-            "medium": 7,
+            "scan_id": "klocwork-scan-745893",
+            "timestamp": "2025-11-17T10:30:00.000Z",
+            "critical": 2,
+            "high": 5,
+            "medium": 12,
             "low": 23,
-            "info": 45,
-            "total": 77,
+            "info": 0,
+            "total": 42,
             "findings": [
               {
-                "severity": "HIGH",
-                "title": "Outdated SSL/TLS Configuration",
-                "description": "TLS 1.1 still enabled, should enforce TLS 1.2+",
-                "file": "nginx.conf",
-                "remediation": "Update SSL configuration to disable TLS 1.1"
+                "severity": "CRITICAL",
+                "title": "SQL Injection Vulnerability",
+                "description": "Unsanitized user input in SQL query",
+                "file": "src/routes/users.js",
+                "line": 127,
+                "remediation": "Use parameterized queries or ORM"
               },
               {
-                "severity": "HIGH",
-                "title": "Missing Security Headers",
-                "description": "X-Frame-Options header not configured",
-                "file": "server configuration",
-                "remediation": "Add X-Frame-Options: DENY header"
+                "severity": "CRITICAL",
+                "title": "Cross-Site Scripting (XSS)",
+                "description": "Unescaped output in HTML context",
+                "file": "src/components/App.js",
+                "line": 67,
+                "remediation": "Sanitize user input before rendering"
               }
             ]
           }
           EOF
 
-          cat scan_results.json > $CLOUDBEES_OUTPUTS/results
-      - name: Code Quality Analysis
-        id: code-analysis
-        uses: docker://node:22-alpine
-        run: |
-          # Simulate code quality metrics
-          QUALITY_SCORE=88
-          echo "$QUALITY_SCORE" > $CLOUDBEES_OUTPUTS/quality-score
-
-          echo "Running ESLint analysis..."
-          sleep 2
-          echo "✓ Code style compliance: 94%"
-          echo "✓ Complexity score: $QUALITY_SCORE/100"
-          echo "✓ Test coverage: 87.3%"
-          echo "✓ Maintainability index: A"
-      - name: Dependency Vulnerability Check
-        id: dependency-check
-        uses: docker://node:22-alpine
-        run: |
-          # Simulate dependency scan
-          echo "Scanning npm dependencies..."
-          sleep 3
-
+          # Generate dependency vulnerabilities
           cat > vulnerabilities.json << 'EOF'
           {
             "audit_summary": {
@@ -240,43 +429,68 @@ jobs:
           }
           EOF
 
+          # Set outputs
+          cat scan_results.json > $CLOUDBEES_OUTPUTS/results
+          echo "88" > $CLOUDBEES_OUTPUTS/quality-score
           cat vulnerabilities.json > $CLOUDBEES_OUTPUTS/vulnerabilities
 
-          echo "✓ 0 critical vulnerabilities found"
-          echo "✓ 1 moderate vulnerability found (non-blocking)"
+          echo ""
+          echo "Full report available at:"
+          echo "https://klocwork.demo.cloudbees.io:8080/review/project/demo-p4-app"
       - name: Publish Quality Gate Evidence
         uses: cloudbees-io/publish-evidence-item@v1
         with:
           content: >
-            # Quality Gate Results
+            # Klocwork Quality Gate Results
 
 
-            ## Security Scan
+            ## Static Analysis (Klocwork)
 
-            - **Critical**: 0
+            **Server:** klocwork.demo.cloudbees.io:8080
 
-            - **High**: 2
+            **Project:** demo-p4-app
 
-            - **Medium**: 7
-
-            - **Low**: 23
-
-            - **Total Issues**: 77
+            **Report:** https://klocwork.demo.cloudbees.io:8080/review/project/demo-p4-app
 
 
-            ## Code Quality
+            ### Issue Summary
 
-            - **Quality Score**: ${{ steps.code-analysis.outputs.quality-score
-            }}/100
+            - **Critical**: 2 issues
 
-            - **Test Coverage**: 87.3%
+            - **Error**: 5 issues
 
-            - **Code Style Compliance**: 94%
+            - **Warning**: 12 issues
 
-            - **Maintainability**: Grade A
+            - **Review**: 23 issues
+
+            - **Total Issues**: 42 issues
 
 
-            ## Dependency Security
+            ### Code Quality Metrics
+
+            - **Quality Score**: ${{ steps.klocwork-analysis.outputs.quality-score }}/100
+
+            - **Issue Density**: 2.1 issues per KLOC
+
+            - **Cyclomatic Complexity**: 4.2 average
+
+            - **Code Duplication**: 3.4%
+
+            - **Comment Density**: 18.7%
+
+
+            ### Security Analysis
+
+            - **SQL Injection**: 1 critical finding
+
+            - **XSS Vulnerabilities**: 1 critical finding
+
+            - **Path Traversal**: 0 findings
+
+            - **Command Injection**: 0 findings
+
+
+            ### Dependency Security
 
             - **Critical Vulnerabilities**: 0
 
@@ -295,18 +509,31 @@ jobs:
       - create-release-issue
       - gather-evidence
     steps:
-      - name: Updating Jira tickets
-        uses: https://github.com/cloudbees-days/jira-add-comment
-        with:
-          jira-url: ${{ secrets.JIRA_URL }}
-          jira-username: ${{ secrets.JIRA_USERNAME }}
-          jira-token: ${{ secrets.JIRA_TOKEN }}
-          issue-key: ${{ needs.create-release-issue.outputs.issue-key }}
-          comment: |
-            Quality checks passed.
+      - name: Connect to Perforce Helix Plan
+        uses: docker://alpine:latest
+        run: |
+          echo "Connecting to Perforce Helix Plan Server"
+          echo "Server: https://helixplan.demo.cloudbees.io:8443"
+          sleep 1
+          echo "✓ Connected to Helix Plan"
+      - name: Add Comment to Release Task
+        uses: docker://alpine:latest
+        run: |
+          echo "Adding comment to Helix Plan task..."
+          echo "Task ID: ${{ needs.create-release-issue.outputs.issue-key }}"
+          sleep 2
 
-            ## Outstanding Jira Tickets
-            ${{ needs.gather-evidence.outputs.issues-table }}
+          echo "Comment content:"
+          echo "────────────────────────────────"
+          echo "Quality checks passed (Klocwork)."
+          echo ""
+          echo "## Outstanding Tasks"
+          echo "${{ needs.gather-evidence.outputs.issues-table }}"
+          echo "────────────────────────────────"
+
+          echo ""
+          echo "✓ Comment added successfully to task"
+          echo "✓ Task updated at: $(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
   approval:
     needs:
       - update-jira-tickets
@@ -315,9 +542,126 @@ jobs:
       instructions: ""
       disallowLaunchByUser: false
     delegates: cloudbees-io/manual-approval/custom-job.yml@v1
-  deploy-to-qa:
+  provision-data-qa:
+    environment: demo-p4-qa
     needs:
       - approval
+    outputs:
+      vdb-name: ${{ steps.provision-vdb.outputs.vdb-name }}
+      snapshot-id: ${{ steps.provision-vdb.outputs.snapshot-id }}
+    steps:
+      - name: Connect to Delphix Engine
+        uses: docker://alpine:latest
+        run: |
+          echo "Connecting to Delphix Engine"
+          echo "Engine: delphix.demo.cloudbees.io"
+          echo "Environment: QA"
+          sleep 2
+          echo "✓ Connected to Delphix Engine"
+          echo "✓ Engine version: Delphix 6.0.18"
+      - name: Select Production Data Source
+        uses: docker://alpine:latest
+        run: |
+          echo "Selecting production database source..."
+          echo "Source Database: demo-p4-prod-db"
+          echo "Latest Snapshot: snap-2025-11-17-09-30"
+          echo "Snapshot Size: 42.3 GB"
+          echo "Snapshot Date: 2025-11-17 09:30:00 UTC"
+          sleep 1
+          echo "✓ Production snapshot selected"
+      - name: Provision Virtual Database (VDB)
+        id: provision-vdb
+        uses: docker://alpine:latest
+        run: |
+          echo "Provisioning Virtual Database for QA..."
+          echo "VDB Name: demo-p4-qa-vdb"
+          echo "Target: qa-db-server-01"
+          echo "Source Snapshot: snap-2025-11-17-09-30"
+          sleep 3
+
+          echo ""
+          echo "Provisioning steps:"
+          echo "  1. Creating VDB container..."
+          echo "  2. Mounting data files..."
+          echo "  3. Applying incremental changes..."
+          echo "  4. Starting database instance..."
+
+          sleep 2
+
+          echo ""
+          echo "✓ VDB provisioned successfully"
+          echo "  VDB Name: demo-p4-qa-vdb"
+          echo "  Size: 42.3 GB (virtual)"
+          echo "  Actual Storage Used: 2.1 GB (5% of source)"
+          echo "  Provisioning Time: 5 minutes"
+
+          # Set outputs
+          echo "demo-p4-qa-vdb" > $CLOUDBEES_OUTPUTS/vdb-name
+          echo "snap-2025-11-17-09-30" > $CLOUDBEES_OUTPUTS/snapshot-id
+      - name: Apply Data Masking Policies
+        uses: docker://alpine:latest
+        run: |
+          echo "Applying data masking policies..."
+          echo "Masking Algorithm: Delphix Profiling and Masking"
+          sleep 2
+
+          echo ""
+          echo "Masking sensitive data:"
+          echo "  • Customer PII (SSN, Email, Phone)"
+          echo "  • Credit Card Numbers"
+          echo "  • User Passwords"
+          echo "  • API Keys and Secrets"
+
+          sleep 2
+
+          echo ""
+          echo "✓ Data masking complete"
+          echo "  Columns masked: 47"
+          echo "  Rows affected: 1,234,567"
+          echo "  Masking time: 3 minutes"
+          echo "  Compliance: GDPR, PCI-DSS compliant"
+      - name: Verify VDB Health
+        uses: docker://alpine:latest
+        run: |
+          echo "Running VDB health checks..."
+          sleep 2
+
+          echo "Database Status: ONLINE"
+          echo "Connectivity: OK"
+          echo "Data Integrity: VERIFIED"
+          echo "Masking Validation: PASSED"
+          echo "Performance: Optimal"
+
+          echo ""
+          echo "✓ QA database ready for testing"
+      - name: Publish Delphix Evidence
+        uses: cloudbees-io/publish-evidence-item@v1
+        with:
+          content: |
+            # Delphix Data Provisioning (QA)
+
+            ## Virtual Database Details
+            - **VDB Name:** ${{ steps.provision-vdb.outputs.vdb-name }}
+            - **Source Snapshot:** ${{ steps.provision-vdb.outputs.snapshot-id }}
+            - **Target Server:** qa-db-server-01
+            - **Size:** 42.3 GB (virtual)
+            - **Storage Used:** 2.1 GB (5% of source)
+
+            ## Data Masking
+            - **Columns Masked:** 47
+            - **Rows Affected:** 1,234,567
+            - **Compliance:** GDPR, PCI-DSS compliant
+            - **Algorithms:** Profiling and Masking
+
+            ## Status
+            - **Health Check:** PASSED
+            - **Ready for Testing:** ✓
+
+            **Delphix Engine:** delphix.demo.cloudbees.io
+          format: MARKDOWN
+  deploy-to-qa:
+    needs:
+      - provision-data-qa
     uses: cloudbees-days/demo-p4-app/.cloudbees/workflows/deployer.yaml
     with:
       manifest: ${{ inputs.manifest }}
@@ -339,6 +683,7 @@ jobs:
           environment-name: demo-p4-qa
           flag-name: default.score
           use-org-as-app: true
+          api-url: https://api.demo1.cloudbees.io
           flag-config: |
             enabled: true
             defaultValue: true
@@ -356,7 +701,7 @@ jobs:
             ${{ steps.config-update.outputs.configuration }}
             ```
 
-            ✅ Flag configuration update successful
+            ✓ Flag configuration update successful
           format: MARKDOWN
   run-tests-qa:
     environment: demo-p4-qa
@@ -536,7 +881,7 @@ jobs:
           # Evaluate criteria
 
           if [ $SUCCESS_RATE -ge 75 ] && [ $COVERAGE -ge 80 ]; then
-            echo "✅ All test criteria met"
+            echo "✓ All test criteria met"
             echo "PASSED" > $CLOUDBEES_OUTPUTS/status
           else
             echo "❌ Test criteria not met"
@@ -564,7 +909,7 @@ jobs:
           echo "$BLOCKING_TOTAL" > $CLOUDBEES_OUTPUTS/blocking-count
 
           if [ $BLOCKING_TOTAL -eq 0 ]; then
-            echo "✅ No blocking issues found"
+            echo "✓ No blocking issues found"
           else
             echo "⚠️ $BLOCKING_TOTAL blocking issues require attention"
           fi
@@ -596,7 +941,7 @@ jobs:
 
           if [ $RESPONSE_TIME -le 500 ] && [ $CPU_USAGE -le 80 ] && [
           $MEMORY_USAGE -le 85 ]; then
-            echo "✅ All performance thresholds met"
+            echo "✓ All performance thresholds met"
           else
             echo "⚠️ Performance thresholds exceeded"
           fi
@@ -649,9 +994,133 @@ jobs:
       disallowLaunchByUser: false
       approvers: ""
       notifyAllEligibleUsers: false
-  deploy-to-staging:
+  provision-data-staging:
+    environment: demo-p4-staging
     needs:
       - release-manager-approval
+    outputs:
+      vdb-name: ${{ steps.provision-vdb.outputs.vdb-name }}
+      snapshot-id: ${{ steps.provision-vdb.outputs.snapshot-id }}
+    steps:
+      - name: Connect to Delphix Engine
+        uses: docker://alpine:latest
+        run: |
+          echo "Connecting to Delphix Engine"
+          echo "Engine: delphix.demo.cloudbees.io"
+          echo "Environment: Staging"
+          sleep 2
+          echo "✓ Connected to Delphix Engine"
+          echo "✓ Engine version: Delphix 6.0.18"
+      - name: Select Recent Production Snapshot
+        uses: docker://alpine:latest
+        run: |
+          echo "Selecting production database snapshot..."
+          echo "Source Database: demo-p4-prod-db"
+          echo "Latest Snapshot: snap-2025-11-17-12-00"
+          echo "Snapshot Size: 42.8 GB"
+          echo "Snapshot Date: 2025-11-17 12:00:00 UTC"
+          echo "Delta from QA: 3 hours newer"
+          sleep 1
+          echo "✓ Production snapshot selected (recent data)"
+      - name: Provision Virtual Database (VDB)
+        id: provision-vdb
+        uses: docker://alpine:latest
+        run: |
+          echo "Provisioning Virtual Database for Staging..."
+          echo "VDB Name: demo-p4-staging-vdb"
+          echo "Target: staging-db-server-01"
+          echo "Source Snapshot: snap-2025-11-17-12-00"
+          sleep 3
+
+          echo ""
+          echo "Provisioning steps:"
+          echo "  1. Creating VDB container..."
+          echo "  2. Mounting data files..."
+          echo "  3. Applying incremental changes..."
+          echo "  4. Starting database instance..."
+          echo "  5. Running post-provision scripts..."
+
+          sleep 2
+
+          echo ""
+          echo "✓ VDB provisioned successfully"
+          echo "  VDB Name: demo-p4-staging-vdb"
+          echo "  Size: 42.8 GB (virtual)"
+          echo "  Actual Storage Used: 1.8 GB (4% of source)"
+          echo "  Provisioning Time: 4 minutes"
+
+          # Set outputs
+          echo "demo-p4-staging-vdb" > $CLOUDBEES_OUTPUTS/vdb-name
+          echo "snap-2025-11-17-12-00" > $CLOUDBEES_OUTPUTS/snapshot-id
+      - name: Apply Data Masking for PII
+        uses: docker://alpine:latest
+        run: |
+          echo "Applying data masking policies..."
+          echo "Masking Algorithm: Delphix Profiling and Masking"
+          echo "Policy: Staging Environment (Partial Masking)"
+          sleep 2
+
+          echo ""
+          echo "Masking sensitive data:"
+          echo "  • Customer PII (SSN, Email, Phone)"
+          echo "  • Credit Card Numbers (last 4 digits preserved)"
+          echo "  • User Passwords (hashed)"
+          echo "  • Internal API Keys (masked)"
+          echo "  ℹ️  Production API keys preserved for integration testing"
+
+          sleep 2
+
+          echo ""
+          echo "✓ Data masking complete"
+          echo "  Columns masked: 52"
+          echo "  Rows affected: 1,456,789"
+          echo "  Masking time: 3.5 minutes"
+          echo "  Compliance: GDPR, PCI-DSS, SOC2 compliant"
+      - name: Verify VDB and Performance
+        uses: docker://alpine:latest
+        run: |
+          echo "Running VDB health and performance checks..."
+          sleep 2
+
+          echo "Database Status: ONLINE"
+          echo "Connectivity: OK"
+          echo "Data Integrity: VERIFIED"
+          echo "Masking Validation: PASSED"
+          echo "Query Performance: Baseline established"
+          echo "Index Health: Optimal"
+
+          echo ""
+          echo "✓ Staging database ready for pre-production testing"
+      - name: Publish Delphix Evidence
+        uses: cloudbees-io/publish-evidence-item@v1
+        with:
+          content: |
+            # Delphix Data Provisioning (Staging)
+
+            ## Virtual Database Details
+            - **VDB Name:** ${{ steps.provision-vdb.outputs.vdb-name }}
+            - **Source Snapshot:** ${{ steps.provision-vdb.outputs.snapshot-id }}
+            - **Target Server:** staging-db-server-01
+            - **Size:** 42.8 GB (virtual)
+            - **Storage Used:** 1.8 GB (4% of source)
+            - **Data Freshness:** 3 hours newer than QA
+
+            ## Data Masking
+            - **Columns Masked:** 52
+            - **Rows Affected:** 1,456,789
+            - **Compliance:** GDPR, PCI-DSS, SOC2 compliant
+            - **Policy:** Staging (Partial masking for integration tests)
+
+            ## Status
+            - **Health Check:** PASSED
+            - **Performance:** Baseline established
+            - **Ready for Testing:** ✓
+
+            **Delphix Engine:** delphix.demo.cloudbees.io
+          format: MARKDOWN
+  deploy-to-staging:
+    needs:
+      - provision-data-staging
     uses: cloudbees-days/demo-p4-app/.cloudbees/workflows/deployer.yaml
     with:
       manifest: ${{ inputs.manifest }}
@@ -673,6 +1142,7 @@ jobs:
           environment-name: demo-p4-staging
           flag-name: default.score
           use-org-as-app: true
+          api-url: https://api.demo1.cloudbees.io
           flag-config: |
             enabled: true
             defaultValue: true
@@ -690,7 +1160,7 @@ jobs:
             ${{ steps.config-update.outputs.configuration }}
             ```
 
-            ✅ Flag configuration update successful
+            ✓ Flag configuration update successful
           format: MARKDOWN
   run-tests-staging:
     environment: demo-p4-staging
@@ -886,7 +1356,7 @@ jobs:
           # Check readiness criteria
 
           if [ $STAGING_SUCCESS -ge 99 ] && [ $E2E_SUCCESS -ge 95 ]; then
-            echo "✅ Production readiness criteria met"
+            echo "✓ Production readiness criteria met"
             echo "READY" > $CLOUDBEES_OUTPUTS/status
           else
             echo "❌ Production readiness criteria not met"
@@ -922,11 +1392,11 @@ jobs:
           echo "Validating business impact and stakeholder signoff..."
           sleep 2
 
-          echo "✅ Feature specifications validated"
-          echo "✅ Stakeholder approval received"
-          echo "✅ Customer impact assessment complete"
-          echo "✅ Support team notified"
-          echo "✅ Documentation updated"
+          echo "✓ Feature specifications validated"
+          echo "✓ Stakeholder approval received"
+          echo "✓ Customer impact assessment complete"
+          echo "✓ Support team notified"
+          echo "✓ Documentation updated"
       - name: Infrastructure Readiness
         uses: docker://alpine:3.19
         run: |
@@ -945,10 +1415,10 @@ jobs:
           echo "Disk Space: ${DISK_SPACE}% used"
           echo "Network Latency: ${NETWORK_LATENCY}ms"
 
-          echo "✅ Production infrastructure ready"
-          echo "✅ Auto-scaling configured"
-          echo "✅ Monitoring alerts active"
-          echo "✅ Backup systems verified"
+          echo "✓ Production infrastructure ready"
+          echo "✓ Auto-scaling configured"
+          echo "✓ Monitoring alerts active"
+          echo "✓ Backup systems verified"
       - name: Publish Production Readiness Evidence
         uses: cloudbees-io/publish-evidence-item@v1
         with:
@@ -1012,9 +1482,146 @@ jobs:
     steps:
       - run: echo "TODO"
         uses: docker://golang
-  deploy-to-prod:
+  provision-data-prod:
+    environment: demo-p4-prod
     needs:
       - wait-for-snow-change-request
+    outputs:
+      snapshot-id: ${{ steps.create-snapshot.outputs.snapshot-id }}
+      bookmark-id: ${{ steps.create-bookmark.outputs.bookmark-id }}
+    steps:
+      - name: Connect to Delphix Engine
+        uses: docker://alpine:latest
+        run: |
+          echo "Connecting to Delphix Engine"
+          echo "Engine: delphix.demo.cloudbees.io"
+          echo "Environment: Production"
+          sleep 2
+          echo "✓ Connected to Delphix Engine"
+          echo "✓ Engine version: Delphix 6.0.18"
+      - name: Create Pre-Deployment Snapshot
+        id: create-snapshot
+        uses: docker://alpine:latest
+        run: |
+          echo "Creating production database snapshot..."
+          echo "Database: demo-p4-prod-db"
+          echo "Purpose: Pre-deployment backup for rollback capability"
+          sleep 3
+
+          SNAPSHOT_ID="snap-pre-deploy-$(date +%Y%m%d-%H%M%S)"
+
+          echo ""
+          echo "Snapshot creation steps:"
+          echo "  1. Quiescing database writes..."
+          echo "  2. Creating snapshot point..."
+          echo "  3. Capturing metadata..."
+          echo "  4. Resuming normal operations..."
+
+          sleep 2
+
+          echo ""
+          echo "✓ Production snapshot created"
+          echo "  Snapshot ID: ${SNAPSHOT_ID}"
+          echo "  Database Size: 43.1 GB"
+          echo "  Snapshot Time: $(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+          echo "  Impact: Zero downtime"
+
+          # Set output
+          echo "${SNAPSHOT_ID}" > $CLOUDBEES_OUTPUTS/snapshot-id
+      - name: Create Rollback Bookmark
+        id: create-bookmark
+        uses: docker://alpine:latest
+        run: |
+          echo "Creating rollback bookmark..."
+          echo "Bookmark Name: pre-release-${{ cloudbees.run_number }}"
+          sleep 2
+
+          BOOKMARK_ID="bookmark-release-${{ cloudbees.run_number }}"
+
+          echo ""
+          echo "Bookmark details:"
+          echo "  • Bookmark ID: ${BOOKMARK_ID}"
+          echo "  • Snapshot: ${{ steps.create-snapshot.outputs.snapshot-id }}"
+          echo "  • Retention: 30 days"
+          echo "  • Purpose: Fast rollback if deployment fails"
+
+          echo ""
+          echo "✓ Rollback bookmark created"
+          echo "  Rollback RTO: <5 minutes"
+
+          # Set output
+          echo "${BOOKMARK_ID}" > $CLOUDBEES_OUTPUTS/bookmark-id
+      - name: Validate Production Database Health
+        uses: docker://alpine:latest
+        run: |
+          echo "Validating production database health..."
+          sleep 2
+
+          echo "Pre-deployment health checks:"
+          echo "  • Database Status: ONLINE"
+          echo "  • Replication Lag: 0 seconds"
+          echo "  • Connection Pool: Healthy"
+          echo "  • Disk Space: 68% used (adequate)"
+          echo "  • Memory Usage: 72% (normal)"
+          echo "  • CPU Load: 34% (normal)"
+
+          echo ""
+          echo "✓ Production database is healthy"
+          echo "✓ Ready for deployment"
+      - name: Verify Backup and Rollback Readiness
+        uses: docker://alpine:latest
+        run: |
+          echo "Verifying backup and rollback procedures..."
+          sleep 2
+
+          echo "Rollback readiness checklist:"
+          echo "  ✓ Pre-deployment snapshot created"
+          echo "  ✓ Rollback bookmark established"
+          echo "  ✓ Delphix TimeFlow validated"
+          echo "  ✓ Rollback procedure documented"
+          echo "  ✓ DBA team notified"
+          echo "  ✓ Monitoring alerts configured"
+
+          echo ""
+          echo "Rollback capability: CONFIRMED"
+          echo "   Estimated rollback time: <5 minutes"
+      - name: Publish Delphix Evidence
+        uses: cloudbees-io/publish-evidence-item@v1
+        with:
+          content: |
+            # Delphix Production Data Protection
+
+            ## Pre-Deployment Snapshot
+            - **Snapshot ID:** ${{ steps.create-snapshot.outputs.snapshot-id }}
+            - **Database:** demo-p4-prod-db
+            - **Size:** 43.1 GB
+            - **Downtime:** Zero (hot snapshot)
+
+            ## Rollback Preparedness
+            - **Bookmark ID:** ${{ steps.create-bookmark.outputs.bookmark-id }}
+            - **Recovery Time Objective (RTO):** <5 minutes
+            - **Recovery Point Objective (RPO):** Point-in-time before deployment
+            - **Retention:** 30 days
+
+            ## Database Health
+            - **Status:** ONLINE and healthy
+            - **Replication:** In sync
+            - **Performance:** Within normal parameters
+            - **Capacity:** Adequate
+
+            ## Rollback Capability
+            - ✓ Snapshot verified
+            - ✓ Bookmark created
+            - ✓ Rollback procedure ready
+            - ✓ Team notified
+
+            **Delphix Engine:** delphix.demo.cloudbees.io
+
+            **Production deployment can proceed safely with rollback protection**
+          format: MARKDOWN
+  deploy-to-prod:
+    needs:
+      - provision-data-prod
     uses: cloudbees-days/demo-p4-app/.cloudbees/workflows/deployer.yaml
     with:
       manifest: ${{ inputs.manifest }}
@@ -1132,7 +1739,7 @@ jobs:
           echo "Throughput: ${THROUGHPUT} req/min"
           echo "CPU Usage: ${CPU_USAGE}%"
 
-          echo "✅ Performance within acceptable thresholds"
+          echo "✓ Performance within acceptable thresholds"
       - name: User Experience Validation
         uses: docker://alpine:3.19
         run: |
@@ -1140,12 +1747,12 @@ jobs:
           sleep 3
 
           echo "=== UX Validation ==="
-          echo "✅ Page load times < 2s"
-          echo "✅ Mobile responsiveness verified"
-          echo "✅ Accessibility compliance (WCAG 2.1)"
-          echo "✅ Cross-browser compatibility"
-          echo "✅ SSL/TLS certificates valid"
-          echo "✅ CDN performance optimal"
+          echo "✓ Page load times < 2s"
+          echo "✓ Mobile responsiveness verified"
+          echo "✓ Accessibility compliance (WCAG 2.1)"
+          echo "✓ Cross-browser compatibility"
+          echo "✓ SSL/TLS certificates valid"
+          echo "✓ CDN performance optimal"
       - name: Security Validation
         uses: docker://alpine:3.19
         run: |
@@ -1153,12 +1760,12 @@ jobs:
           sleep 3
 
           echo "=== Security Checks ==="
-          echo "✅ HTTPS enforcement active"
-          echo "✅ Security headers present"
-          echo "✅ Authentication mechanisms working"
-          echo "✅ Rate limiting configured"
-          echo "✅ Input validation active"
-          echo "✅ No sensitive data exposed"
+          echo "✓ HTTPS enforcement active"
+          echo "✓ Security headers present"
+          echo "✓ Authentication mechanisms working"
+          echo "✓ Rate limiting configured"
+          echo "✓ Input validation active"
+          echo "✓ No sensitive data exposed"
       - name: Publish Smoke Test Evidence
         uses: cloudbees-io/publish-evidence-item@v1
         with:
@@ -1218,6 +1825,7 @@ jobs:
           environment-name: demo-p4-prod
           flag-name: default.score
           use-org-as-app: true
+          api-url: https://api.demo1.cloudbees.io
           flag-config: |
             enabled: true
             defaultValue:
@@ -1241,5 +1849,5 @@ jobs:
             ${{ steps.config-update.outputs.configuration }}
             ```
 
-            ✅ Flag configuration update successful
+            ✓ Flag configuration update successful
           format: MARKDOWN
