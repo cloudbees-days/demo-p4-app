@@ -50,28 +50,28 @@ jobs:
       issue-key: ${{ steps.create-release-task.outputs.task-key }}
       issue-url: ${{ steps.create-release-task.outputs.task-url }}
     steps:
-      - name: Connect to Perforce Helix Plan
+      - name: Connect to Perforce P4 Plan
         uses: docker://alpine:latest
         run: |
-          echo "Connecting to Perforce Helix Plan Server"
-          echo "Server: https://helixplan.demo.cloudbees.io:8443"
+          echo "Connecting to Perforce P4 Plan Server"
+          echo "Server: https://p4plan.demo.cloudbees.io:8443"
           echo "Project: UDEMO"
           echo "User: cloudbees-ci"
           sleep 2
-          echo "✓ Successfully connected to Helix Plan"
-          echo "✓ Server version: Helix Plan 2023.3"
-      - name: Create Release Task in Helix Plan
+          echo "✓ Successfully connected to P4 Plan"
+          echo "✓ Server version: P4 Plan 2023.3"
+      - name: Create Release Task in P4 Plan
         id: create-release-task
         uses: docker://alpine:latest
         run: |
-          echo "📝 Creating release task in Helix Plan..."
+          echo "📝 Creating release task in P4 Plan..."
           echo "Project: UDEMO"
           echo "Task Type: Release"
           sleep 2
 
           # Simulate task creation
           TASK_KEY="UDEMO-${{ cloudbees.run_number }}"
-          TASK_URL="https://helixplan.demo.cloudbees.io:8443/project/UDEMO/task/${TASK_KEY}"
+          TASK_URL="https://p4plan.demo.cloudbees.io:8443/project/UDEMO/task/${TASK_KEY}"
 
           echo "=== Task Created ==="
           echo "Task ID: ${TASK_KEY}"
@@ -90,7 +90,7 @@ jobs:
         uses: cloudbees-io/publish-evidence-item@v1
         with:
           content: >-
-            ## Release Task Created (Helix Plan)
+            ## Release Task Created (P4 Plan)
 
 
             **Task ID:** ${{ steps.create-release-task.outputs.task-key }}
@@ -109,21 +109,21 @@ jobs:
       total: ${{ steps.get-tasks.outputs.total }}
       issues-table: ${{ steps.format-issues.outputs.issues-table }}
     steps:
-      - name: Connect to Perforce Helix Plan
+      - name: Connect to Perforce P4 Plan
         uses: docker://alpine:latest
         run: |
-          echo "Connecting to Perforce Helix Plan Server"
-          echo "Server: https://helixplan.demo.cloudbees.io:8443"
+          echo "Connecting to Perforce P4 Plan Server"
+          echo "Server: https://p4plan.demo.cloudbees.io:8443"
           echo "Project: UDEMO"
           sleep 1
-          echo "✓ Connected to Helix Plan"
-      - name: Query Open Tasks from Helix Plan
+          echo "✓ Connected to P4 Plan"
+      - name: Query Open Tasks from P4 Plan
         id: get-tasks
         uses: docker://alpine:latest
         run: |
           apk add --no-cache jq
 
-          echo "Querying tasks from Helix Plan..."
+          echo "Querying tasks from P4 Plan..."
           echo "Filter: project='UDEMO' AND status != 'Done'"
           echo "Sort: created DESC"
           echo "Limit: 20"
@@ -165,7 +165,7 @@ jobs:
           cat tasks.json > $CLOUDBEES_OUTPUTS/tasks
           echo "3" > $CLOUDBEES_OUTPUTS/total
 
-          echo "✓ Retrieved 3 open tasks from Helix Plan"
+          echo "✓ Retrieved 3 open tasks from P4 Plan"
       - name: Perforce Helix Core - Connect
         uses: docker://alpine:latest
         run: |
@@ -273,11 +273,11 @@ jobs:
         with:
           content: |
             # Evidence report
-            ## Release Task (Helix Plan)
+            ## Release Task (P4 Plan)
             **Task ID:** ${{ needs.create-release-issue.outputs.issue-key }}
             **URL:** ${{ needs.create-release-issue.outputs.issue-url }}
 
-            ## Open Tasks (Helix Plan)
+            ## Open Tasks (P4 Plan)
             ${{ steps.format-issues.outputs.issues-table }}
 
             ## Perforce Helix Core Changesets
@@ -509,17 +509,17 @@ jobs:
       - create-release-issue
       - gather-evidence
     steps:
-      - name: Connect to Perforce Helix Plan
+      - name: Connect to Perforce P4 Plan
         uses: docker://alpine:latest
         run: |
-          echo "Connecting to Perforce Helix Plan Server"
-          echo "Server: https://helixplan.demo.cloudbees.io:8443"
+          echo "Connecting to Perforce P4 Plan Server"
+          echo "Server: https://p4plan.demo.cloudbees.io:8443"
           sleep 1
-          echo "✓ Connected to Helix Plan"
+          echo "✓ Connected to P4 Plan"
       - name: Add Comment to Release Task
         uses: docker://alpine:latest
         run: |
-          echo "Adding comment to Helix Plan task..."
+          echo "Adding comment to P4 Plan task..."
           echo "Task ID: ${{ needs.create-release-issue.outputs.issue-key }}"
           sleep 2
 
