@@ -19,7 +19,7 @@ metadata:
         - create-release-issue
         - gather-evidence
         - quality-checks
-        - update-jira-tickets
+        - update-helix-plan-task
         - approval
     - name: Quality Assurance
       jobs:
@@ -503,7 +503,7 @@ jobs:
 
             **Quality Gate**: PASSED - No blocking issues found
           format: MARKDOWN
-  update-jira-tickets:
+  update-helix-plan-task:
     needs:
       - quality-checks
       - create-release-issue
@@ -536,7 +536,7 @@ jobs:
           echo "✓ Task updated at: $(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
   approval:
     needs:
-      - update-jira-tickets
+      - update-helix-plan-task
     timeout-minutes: 4320
     with:
       instructions: ""
